@@ -17,6 +17,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <unordered_map>
+#include <sys/mman.h>
+#include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -45,6 +48,7 @@ typedef struct file {
     string filename;
     int file_length;
     int open, fd;
+    char *buffer;
     
     file()
     {

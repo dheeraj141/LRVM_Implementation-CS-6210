@@ -21,6 +21,8 @@ int check_file_exists( string file_name)
     return ( stat(file_name.c_str(), &sb) == 0);
     
     
+    
+    
 }
 
 gtfs_t* gtfs_init(string directory, int verbose_flag) {
@@ -64,6 +66,40 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
 }
 
+void update_buffer( gtfs_t *gtf, char *buffer, int file_length, string file_name)
+{
+    // check whether the log file exist or not for that particular file and if it exists then update the buffer but first you have to mmap the file.
+    string  log_file = gtf->dirname +"/" + file_name+"_log";
+    
+    if( check_file_exists(log_file))
+    {
+        std::ifstream file(log_file);
+        std::string str;
+        while (std::getline(file, str))
+        {
+            stringstream ss(str);
+            string word;
+            ss>>word;
+            int offset = stoi( word);
+            ss>>word;
+            int length= stoi( word);
+            
+            ss>>word;
+            for( int i = offset; i<offset+length; i++)
+            {
+                buffer[i] = word[i-offset];
+            }
+            
+        }
+        
+    }
+    
+    
+    
+    
+    
+}
+
 
 
 file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
@@ -85,17 +121,20 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         else
             cout<<"file opened"<<endl;
         
+        // update the file data structure
+        
         fl->filename = file_name;
         fl->fd =fd;
         fl->open =1;
         fl->file_length = file_length;
         
-        char *buffer;
-        buffer = new char[ file_length];
-        std::fill_n(buffer, file_length, '1');
         
+        // make a new buffer
         
-        
+        // mmap the file into a buffer
+                                                                                                                                                       
+        fl->buffer = (char*)mmap(0, file_length, PROT_READ|PROT_WRITE, MAP_PRIVATE,fd, 0);
+        update_buffer(gtf,fl->buffer, file_length, filename);
     }
     else
     {
@@ -120,10 +159,7 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
 
 
 
-void update_buffer( char *buffer, int file_length)
-{
-    
-}
+
 
 int gtfs_close_file(gtfs_t* gtfs, file_t* fl)
 {
@@ -153,35 +189,16 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl)
 char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
 {
     
-    off_t ret;
-    ret = lseek(fl->fd, offset, SEEK_SET);
-    
-    if( ret == -1)
-        cout<<"Error in setting the file descriptor"<<endl;
-    else
-        cout<<"Operation successful"<<endl;
-    
     
     
     
     char *buf;
     buf = (char*)malloc(sizeof(char)*(length+1));
     
-    ssize_t bytes_read;
+   
     
-    while( length >0 && (bytes_read =read( fl->fd,  buf, length)!= 0 ))
-    {
-        if( bytes_read == -1)
-        {
-            if( errno == EINTR)
-                continue;
-            cout<<" Error in reading the file"<<endl;
-            break;
-        }
-        length-=bytes_read;
-        buf+=bytes_read;
-        
-    }
+    for( int i = offset; i<offset+length; i++)
+    buf[i-offset] =fl->buffer[i];
     
     return buf;
     
@@ -203,6 +220,11 @@ int main(int argc, const char * argv[]) {
     
     
     file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    
+    char *buffer = gtfs_read_file(g, x, 0, 10);
+    
+    for( int i = 0; i<10; i++)
+    cout<<buffer[i]<<" ";
     
     int check = gtfs_close_file(g, x);
     
