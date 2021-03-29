@@ -193,7 +193,7 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
     
     
     char *buf;
-    buf = (char*)malloc(sizeof(char)*(length+1));
+    buf = new char[ length];
     
    
     
@@ -206,7 +206,45 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
     
     
 }
+write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const char* data)
+{
+    write_t *w = new write_t();
+    
+    w->data = new char[length];
+    w->offset = offset;
+    w->length = length;
+    w->filename = fl->filename;
+    w->valid=1;
+    w->id = global_id;
+    
+    gtfs->transactions.insert({ w->id, w});
+    global_id++;
+    
+    
+    // copy the previous value
+    for( int i =offset; i<offset+length; i++)
+    w->data[i-offset] = fl->buffer[i];
+    
+    
+    
+    // write the new value
+    
+    for( int i =offset; i<offset+length; i++)
+    {
+        fl->buffer[i] = data[i-offset];
+        
+    }
+    return w;
+}
+
+void print_buffer( char *buffer, int length)
+{
+    for( int i = 0; i<length; i++)
+    cout<<buffer[i]<<" ";
+    
+}
  
+
  
 
 
@@ -223,8 +261,24 @@ int main(int argc, const char * argv[]) {
     
     char *buffer = gtfs_read_file(g, x, 0, 10);
     
-    for( int i = 0; i<10; i++)
-    cout<<buffer[i]<<" ";
+    print_buffer(buffer, 10);
+    
+    
+    
+    string name ="Naveen";
+    
+    write_t *w = gtfs_write_file(g, x, 0, 6, name.c_str());
+    
+    buffer = gtfs_read_file(g, x, 0, 10);
+    
+    print_buffer(buffer, 10);
+    
+    
+    
+    
+    
+    
+    
     
     int check = gtfs_close_file(g, x);
     

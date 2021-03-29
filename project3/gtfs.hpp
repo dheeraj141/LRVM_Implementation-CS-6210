@@ -41,6 +41,7 @@ typedef struct write {
     int length;
     char *data;
     int valid;
+    int id;
     // TODO: Add any additional fields if necessary
 } write_t;
 
