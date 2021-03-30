@@ -35,16 +35,6 @@ extern int do_verbose;
 
 static int global_id = 0;
 
-typedef struct write {
-    string filename;
-    int offset;
-    int length;
-    char *data;
-    int valid;
-    int id;
-    // TODO: Add any additional fields if necessary
-} write_t;
-
 typedef struct file {
     string filename;
     int file_length;
@@ -59,6 +49,19 @@ typedef struct file {
     }
 } file_t;
 
+typedef struct gtfs gtfs_t;
+typedef struct write {
+    string filename;
+    int offset;
+    int length;
+    char *data;
+    char *new_data;
+    gtfs_t *fs;
+    file_t *file_buffer;
+    int valid;
+    int id;
+    // TODO: Add any additional fields if necessary
+} write_t;
 
 
 typedef struct gtfs {
@@ -75,6 +78,13 @@ typedef struct gtfs {
     
     // TODO: Add any additional fields if necessary
 } gtfs_t;
+
+
+
+
+
+
+
 
 
 

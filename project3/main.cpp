@@ -7,6 +7,10 @@
 
 #include "gtfs.hpp"
 
+string directory ="./test";
+
+int verbose =0;
+
 #define VERBOSE_PRINT(verbose, str...) do { \
     if (verbose) cout << "VERBOSE: "<< __FILE__ << ":" << __LINE__ << " " << __func__ << "(): " << str; \
 } while(0)
@@ -66,30 +70,44 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
 }
 
-void update_buffer( gtfs_t *gtf, char *buffer, int file_length, string file_name)
+void update_buffer( char *buffer, int file_length, string file_name)
 {
     // check whether the log file exist or not for that particular file and if it exists then update the buffer but first you have to mmap the file.
-    string  log_file = gtf->dirname +"/" + file_name+"_log";
+    
+    size_t index = file_name.find('.', 1);
+    
+    
+    string log_file = file_name.substr(0, index)+"_log.txt";
     
     if( check_file_exists(log_file))
     {
-        std::ifstream file(log_file);
-        std::string str;
-        while (std::getline(file, str))
+        int fd = open(log_file.c_str(), O_RDONLY);
+        
+        char c;
+        read(fd, &c, 1);
+        int offset, length;
+        
+        string word;
+        while( c!= ' ')
         {
-            stringstream ss(str);
-            string word;
-            ss>>word;
-            int offset = stoi( word);
-            ss>>word;
-            int length= stoi( word);
+            word.push_back(c);
+            read(fd, &c, 1);
             
-            ss>>word;
-            for( int i = offset; i<offset+length; i++)
-            {
-                buffer[i] = word[i-offset];
-            }
-            
+        }
+        offset = stoi(word);
+        word ="";
+        read(fd, &c, 1);
+        while( c!= ' ')
+        {
+            word.push_back(c);
+            read( fd, &c, 1);
+        }
+        length = stoi( word);
+        read( fd, &c, 1);
+        for( int i = offset; i<offset+length; i++)
+        {
+            buffer[i] =c;
+            read( fd, &c, 1);
         }
         
     }
@@ -113,6 +131,9 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         cout<<"file is not opened or created "<<endl;
         // open a file
         int fd = open(file_name.c_str(), O_RDWR| O_CREAT, S_IRWXU| S_IRWXG);
+        
+        
+        
                                                                                                                                                      
         if( fd == -1)
         {
@@ -120,6 +141,16 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         }
         else
             cout<<"file opened"<<endl;
+        
+        struct stat st;
+        stat(file_name.c_str(), &st);
+        int size = (int)st.st_size;
+        
+        if( size < file_length)
+        {
+            if( ftruncate(fd, file_length) == -1)
+                cout<<"Error in increasing the file size"<<endl;
+        }
         
         // update the file data structure
         
@@ -134,7 +165,7 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         // mmap the file into a buffer
                                                                                                                                                        
         fl->buffer = (char*)mmap(0, file_length, PROT_READ|PROT_WRITE, MAP_PRIVATE,fd, 0);
-        update_buffer(gtf,fl->buffer, file_length, filename);
+        update_buffer(fl->buffer, file_length, file_name);
     }
     else
     {
@@ -193,12 +224,16 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
     
     
     char *buf;
-    buf = new char[ length];
+    buf = new char[ length+1];
     
+    int i ;
    
     
-    for( int i = offset; i<offset+length; i++)
+    for( i = offset; i<offset+length; i++)
     buf[i-offset] =fl->buffer[i];
+    buf[i-offset] = '\0';
+    
+    
     
     return buf;
     
@@ -211,27 +246,37 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     write_t *w = new write_t();
     
     w->data = new char[length];
+    w->new_data = new char[length];
+    
     w->offset = offset;
     w->length = length;
     w->filename = fl->filename;
     w->valid=1;
     w->id = global_id;
+    w->fs = gtfs;
+    w->file_buffer  =fl;
+    
+    // copy the previous value
+    int i = offset;
+    for(i =offset; i<offset+length; i++)
+    w->data[i-offset] = fl->buffer[i];
+    
+    //save the w for later usage
     
     gtfs->transactions.insert({ w->id, w});
     global_id++;
     
     
-    // copy the previous value
-    for( int i =offset; i<offset+length; i++)
-    w->data[i-offset] = fl->buffer[i];
+   
     
     
     
     // write the new value
     
-    for( int i =offset; i<offset+length; i++)
+    for( i =offset; i<offset+length; i++)
     {
         fl->buffer[i] = data[i-offset];
+        w->new_data[i-offset] = data[i-offset];
         
     }
     return w;
@@ -242,6 +287,183 @@ void print_buffer( char *buffer, int length)
     for( int i = 0; i<length; i++)
     cout<<buffer[i]<<" ";
     
+    cout<<endl;
+    
+}
+int write_file( int fd, const char *data,int length)
+{
+    ssize_t ret;
+    
+    while( length != 0 && ( ret=write(fd, data, length) ) !=0)
+    {
+        if( ret ==-1)
+        {
+            if( errno == EINTR)
+                continue;
+            cout<<"Write to the file failed"<<endl;
+            return -1;
+        }
+        length-=ret;
+        data+=ret;
+    }
+    return 0;
+}
+
+int gtfs_sync_write_file(write_t* write_id)
+{
+    // sync write will check for the log file whether if exists or not if exists open the log file and write the transactions and otherwise create the log file and then do the same
+    
+    
+    size_t index = write_id->filename.find('.', 1);
+    
+    
+    string log_file = write_id->filename.substr(0, index)+"_log.txt";
+    int fd;
+    
+    if( check_file_exists(log_file))
+    {
+        fd = open(log_file.c_str(), O_RDWR|O_APPEND);
+    }
+    else
+    {
+        // create the file
+        fd = open(log_file.c_str(), O_RDWR| O_CREAT|O_APPEND, S_IRWXU| S_IRWXG);
+        
+    }
+    string data;
+    
+    data += to_string( write_id->offset);
+    data+=" ";
+    
+    data+= to_string(write_id->length);
+    data+=" ";
+    if( write_file(fd, data.c_str(), (int)data.length()) == -1)
+    {
+        return -1;
+    }
+    
+    
+    if(write_file(fd, write_id->new_data, write_id->length) == -1)
+        return -1;
+    
+    if( fsync(fd) == -1)
+    {
+        
+        cout<<"issue is writing to disk"<<endl;
+        return -1;
+    }
+    else
+        cout<<"Written to disk"<<endl;
+    
+    
+    
+    delete [] write_id->data;
+    delete [] write_id->new_data;
+    
+    // find a way to delete the unordered map value
+    
+    int bytes_written = (int)data.length()+ write_id->length;
+    delete write_id;
+    
+    return bytes_written;
+    
+    
+    
+    
+    
+}
+
+int gtfs_abort_write_file(write_t* write_id)
+{
+    
+    // abort means you copy the same data back to the mmap buffer for that you should have access to the mmap buffer but that bufffer lies in the gtfs instance and we are not passing the gtfs instance here
+    
+    for( int i = write_id->offset; i<write_id->offset+write_id->length; i++)
+    {
+        write_id->file_buffer->buffer[i] = write_id->data[i-write_id->offset];
+    }
+    delete [] write_id->data;
+    delete [] write_id->new_data;
+    delete write_id;
+    
+    return 0;
+}
+
+// **Test 1**: Testing that data written by one process is then successfully read by another process.
+void writer() {
+    gtfs_t *gtfs = gtfs_init(directory, verbose);
+    string filename = "test1.txt";
+    file_t *fl = gtfs_open_file(gtfs, filename, 100);
+
+    string str = "Hi, I'm the writer.\n";
+    write_t *wrt = gtfs_write_file(gtfs, fl, 10, str.length(), str.c_str());
+    gtfs_sync_write_file(wrt);
+
+    gtfs_close_file(gtfs, fl);
+}
+
+void reader() {
+    gtfs_t *gtfs = gtfs_init(directory, verbose);
+    string filename = "test1.txt";
+    file_t *fl = gtfs_open_file(gtfs, filename, 100);
+
+    string str = "Hi, I'm the writer.\n";
+    char *data = gtfs_read_file(gtfs, fl, 10, str.length());
+    if (data != NULL) {
+        str.compare(string(data)) == 0 ? cout << PASS : cout << FAIL;
+    } else {
+        cout << FAIL;
+    }
+    gtfs_close_file(gtfs, fl);
+}
+
+void test_write_read() {
+    int pid;
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        exit(-1);
+    }
+    if (pid == 0) {
+        writer();
+        exit(0);
+    }
+    waitpid(pid, NULL, 0);
+    reader();
+}
+
+// **Test 2**: Testing that aborting a write returns the file to its original contents.
+
+void test_abort_write() {
+
+    gtfs_t *gtfs = gtfs_init(directory, verbose);
+    string filename = "test2.txt";
+    file_t *fl = gtfs_open_file(gtfs, filename, 100);
+
+    string str = "Testing string.\n";
+    write_t *wrt1 = gtfs_write_file(gtfs, fl, 0, str.length(), str.c_str());
+    gtfs_sync_write_file(wrt1);
+
+    write_t *wrt2 = gtfs_write_file(gtfs, fl, 20, str.length(), str.c_str());
+    gtfs_abort_write_file(wrt2);
+
+    char *data1 = gtfs_read_file(gtfs, fl, 0, str.length());
+    if (data1 != NULL) {
+        // First write was synced so reading should be successfull
+        if (str.compare(string(data1)) != 0) {
+            cout << FAIL;
+        }
+        // Second write was aborted and there was no string written in that offset
+        char *data2 = gtfs_read_file(gtfs, fl, 20, str.length());
+        if (data2 == NULL) {
+            cout << FAIL;
+        } else if (string(data2).compare("") == 0) {
+            cout << PASS;
+        }
+    } else {
+        cout << FAIL;
+    }
+    gtfs_close_file(gtfs, fl);
 }
  
 
@@ -252,9 +474,11 @@ int main(int argc, const char * argv[]) {
     
     
     
-    string dir ="./test";
+    //string dir ="./test";
     
-    gtfs_t *g  = gtfs_init(dir, 0);
+    /*
+    
+    gtfs_t *g  = gtfs_init(directory, 0);
     
     
     file_t *x = gtfs_open_file( g, "test11.txt", 100 );
@@ -265,13 +489,29 @@ int main(int argc, const char * argv[]) {
     
     
     
-    string name ="Naveen";
+    string name ="Dheera";
     
     write_t *w = gtfs_write_file(g, x, 0, 6, name.c_str());
     
     buffer = gtfs_read_file(g, x, 0, 10);
-    
     print_buffer(buffer, 10);
+    
+    gtfs_sync_write_file(w);
+    
+    //gtfs_abort_write_file(w);
+    
+    //buffer = gtfs_read_file(g, x, 0, 10);
+    
+    //print_buffer(buffer, 10);
+    
+    
+   
+    
+    
+    
+    
+    
+    
     
     
     
@@ -283,6 +523,21 @@ int main(int argc, const char * argv[]) {
     int check = gtfs_close_file(g, x);
     
     cout<<check<<endl;
+     
+     */
+     
+    
+    
+    cout << "================== Test 1 ==================\n";
+    cout << "Testing that data written by one process is then successfully read by another process.\n";
+    test_write_read();
+
+    cout << "================== Test 2 ==================\n";
+    cout << "Testing that aborting a write returns the file to its original contents.\n";
+    test_abort_write();
+     
+     
+
     
     
     
