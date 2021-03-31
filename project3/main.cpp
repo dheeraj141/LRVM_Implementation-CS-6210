@@ -151,12 +151,12 @@ void update_buffer( char *buffer, int file_length, string dirname, string file_n
         int fd = open(log_file.c_str(), O_RDONLY);
         
         char c;
-        read(fd, &c, 1);
+       
         
         
         int offset, length;
         
-        while( c!= EOF)
+        while(  read(fd, &c, 1) ==1)
         {
             string word;
             while( c!= ' ')
@@ -174,11 +174,11 @@ void update_buffer( char *buffer, int file_length, string dirname, string file_n
                 read( fd, &c, 1);
             }
             length = stoi( word);
-            read( fd, &c, 1);
+           
             for( int i = offset; i<offset+length; i++)
             {
-                buffer[i] =c;
                 read( fd, &c, 1);
+                buffer[i] =c;
             }
             
         }
@@ -193,7 +193,7 @@ void update_buffer( char *buffer, int file_length, string dirname, string file_n
     
 }
 
-int  update_file(string dirname, string file_name)
+int  update_file(string dirname, string file_name, int bytes)
 {
     string log_dir = dirname+ "_log";
     
@@ -213,7 +213,9 @@ int  update_file(string dirname, string file_name)
         
         char c;
         
-        int offset, length;
+        int offset, length, count;
+        
+        count = 0;
         
         while( read(fd, &c, 1) ==1)
         {
@@ -240,23 +242,49 @@ int  update_file(string dirname, string file_name)
                 read( fd, &c, 1);
             }
             length = stoi( word);
-          
-            for( int i = 0; i<length; i++)
+            
+            if( bytes >0)
             {
-                read( fd, &c, 1);
-                write(fd1, &c, 1);
+                for( int i = 0; i<length&& count<bytes; i++, ++count)
+                {
+                    read( fd, &c, 1);
+                    write(fd1, &c, 1);
+                    
+                }
+                
+                if(count == bytes)
+                    return 0;
                 
             }
+            else
+            {
+                for( int i = 0; i<length; i++)
+                {
+                    read( fd, &c, 1);
+                    write(fd1, &c, 1);
+                    
+                }
+                
+            }
+          
+            
             
             
         }
         
-        if( ftruncate(fd, 0) == -1)
+        if( bytes  == -1)
         {
-            cout<<"Error in  truncating the log file"<<endl;
-            return -1;
+            if( ftruncate(fd, 0) == -1)
+            {
+                cout<<"Error in  truncating the log file"<<endl;
+                return -1;
+                
+            }
             
         }
+        
+        
+       
         
        
         
@@ -269,7 +297,8 @@ int  update_file(string dirname, string file_name)
     
     
 }
-int gtfs_clean(gtfs_t* gtfs)
+
+int clean_log( gtfs_t *gtfs, int bytes)
 {
     // copy all the data from the logs and updates the files all at once.
     
@@ -287,7 +316,7 @@ int gtfs_clean(gtfs_t* gtfs)
                 continue;
             else
             {
-                update_file(gtfs->dirname, string(dir->d_name));
+                update_file(gtfs->dirname, string(dir->d_name),bytes);
             }
             
         }
@@ -296,7 +325,10 @@ int gtfs_clean(gtfs_t* gtfs)
     return 0;
     
     
-    
+}
+int gtfs_clean(gtfs_t* gtfs)
+{
+    return clean_log(gtfs, -1);
 }
 
 
@@ -400,10 +432,6 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl)
 }
 char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
 {
-    
-    
-    
-    
     char *buf;
     buf = new char[ length+1];
     
@@ -413,14 +441,8 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
     for( i = offset; i<offset+length; i++)
     buf[i-offset] =fl->buffer[i];
     buf[i-offset] = '\0';
-    
-    
-    
     return buf;
-    
-    
-    
-    
+
 }
 write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const char* data)
 {
@@ -449,11 +471,7 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     global_id++;
     
     
-   
-    
-    
-    
-    // write the new value
+   // write the new value
     
     for( i =offset; i<offset+length; i++)
     {
@@ -493,7 +511,8 @@ int write_file( int fd, const char *data,int length)
     return 0;
 }
 
-int gtfs_sync_write_file(write_t* write_id)
+
+int sync_write( write_t *write_id, int bytes)
 {
     // sync write will check for the log file whether if exists or not if exists open the log file and write the transactions and otherwise create the log file and then do the same
     
@@ -527,7 +546,7 @@ int gtfs_sync_write_file(write_t* write_id)
     }
     
     
-    if(write_file(fd, write_id->new_data, write_id->length) == -1)
+    if(write_file(fd, write_id->new_data, bytes) == -1)
         return -1;
     
     if( fsync(fd) == -1)
@@ -540,21 +559,59 @@ int gtfs_sync_write_file(write_t* write_id)
         cout<<"Written to disk"<<endl;
     
     
+    int bytes_written = (int)data.length() +bytes;
     
-    delete [] write_id->data;
-    delete [] write_id->new_data;
     
-    // find a way to delete the unordered map value
-    
-    int bytes_written = (int)data.length()+ write_id->length;
-    delete write_id;
+    if(bytes == write_id->length)
+    {
+        delete [] write_id->data;
+        delete [] write_id->new_data;
+        
+       
+        delete write_id;
+        
+    }
+    else
+    {
+        // update the offset , length and the data in the buffers
+        write_id->offset = write_id->offset+bytes;
+        write_id->length-=bytes;
+        
+        char *old_data = new char[ write_id->length];
+        char *new_data = new char[ write_id->length];
+        strncpy(old_data, write_id->data+bytes, write_id->length );
+        
+        strncpy(new_data, write_id->new_data+bytes, write_id->length );
+        
+        
+        delete [] write_id->data;
+        delete [] write_id->new_data;
+        
+        write_id->data = old_data;
+        write_id->new_data = new_data;
+        
+        
+        
+    }
+  
     
     return bytes_written;
     
     
-    
-    
-    
+}
+
+int gtfs_sync_write_file(write_t* write_id)
+{
+    return sync_write(write_id, write_id->length);
+}
+
+int gtfs_sync_write_file_n_bytes(write_t* write_id, int bytes)
+{
+    return sync_write(write_id, bytes);
+}
+int gtfs_clean_n_bytes(gtfs_t *gtfs, int bytes)
+{
+    return clean_log(gtfs, bytes);
 }
 
 int gtfs_abort_write_file(write_t* write_id)
@@ -649,6 +706,75 @@ void test_abort_write() {
     }
     gtfs_close_file(gtfs, fl);
 }
+
+void test_clean_n_bytes( )
+{
+    int pid;
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        exit(-1);
+    }
+    if (pid == 0) {
+        
+        gtfs_t *g  = gtfs_init(directory, 0);
+        
+        file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+        
+        string name ="Dheera";
+        
+        write_t *w1 = gtfs_write_file(g, x, 0, 6, name.c_str());
+        gtfs_sync_write_file(w1);
+        gtfs_clean_n_bytes(g, 5);
+        gtfs_close_file(g, x);
+        exit(0);
+    }
+    waitpid(pid, NULL, 0);
+    
+    gtfs_t *g  = gtfs_init(directory, 0);
+    
+    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    
+    char *buffer = gtfs_read_file(g, x, 0, 5);
+    if( strcmp( buffer, "Dheer") == 0)
+        cout<<"PASS"<<endl;
+    else
+        cout<<"FAIL"<<endl;
+    
+ 
+}
+
+void test_sync_write_n_bytes()
+{
+    int pid;
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        exit(-1);
+    }
+    if (pid == 0) {
+        
+        gtfs_t *g  = gtfs_init(directory, 0);
+        file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+        string name ="Dheera";
+        
+        write_t *w1 = gtfs_write_file(g, x, 0, 6, name.c_str());
+        gtfs_sync_write_file_n_bytes(w1, 5);
+        exit(0);
+    }
+    waitpid(pid, NULL, 0);
+    
+    gtfs_t *g  = gtfs_init(directory, 0);
+    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    char *buffer = gtfs_read_file(g, x, 0, 5);
+    
+    if( strcmp(buffer, "Dheer") == 0)
+        cout<<"PASS"<<endl;
+    else
+        cout<<"FAIL"<<endl;
+    
+    
+}
  
 
  
@@ -656,91 +782,9 @@ void test_abort_write() {
 
 int main(int argc, const char * argv[]) {
     
+    test_clean_n_bytes();
     
-    
-    
-    
-    
-    
-    
-    
-    //string dir ="./test";
-    
-    
-    
-    gtfs_t *g  = gtfs_init(directory, 0);
-    
-    
-    //gtfs_clean(g);
-    
-    
-    
-    
-    
-    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
-    
-    char *buffer = gtfs_read_file(g, x, 0, 10);
-    
-    print_buffer(buffer, 10);
-    
-    
-    
-    string name ="Dheera";
-    
-    write_t *w1 = gtfs_write_file(g, x, 0, 6, name.c_str());
-    
-    buffer = gtfs_read_file(g, x, 0, 10);
-    print_buffer(buffer, 10);
-    
-    gtfs_sync_write_file(w1);
-    
-    name="Naveen";
-    write_t *w2 = gtfs_write_file(g, x, 0, 6, name.c_str());
-    buffer = gtfs_read_file(g, x, 0, 10);
-    print_buffer(buffer, 10);
-    
-    gtfs_sync_write_file(w2);
-    
-    
-    
-    name=" Kumar";
-    write_t *w3 = gtfs_write_file(g, x, 6, 6, name.c_str());
-    
-    buffer = gtfs_read_file(g, x, 0, 12);
-    print_buffer(buffer, 12);
-    
-    
-    gtfs_clean(g);
-    
-    
-    
-    //gtfs_abort_write_file(w);
-    
-    //buffer = gtfs_read_file(g, x, 0, 10);
-    
-    //print_buffer(buffer, 10);
-    
-    
-   
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    int check = gtfs_close_file(g, x);
-    
-    cout<<check<<endl;
-     
-    
+    test_sync_write_n_bytes();
     
     cout << "================== Test 1 ==================\n";
     cout << "Testing that data written by one process is then successfully read by another process.\n";
@@ -749,23 +793,7 @@ int main(int argc, const char * argv[]) {
     cout << "================== Test 2 ==================\n";
     cout << "Testing that aborting a write returns the file to its original contents.\n";
     test_abort_write();
-     
-     
-
-    
-    
-    
-    
-    
-    
-    
+ 
     return 0;
-    
-    
-   
-    
-    
-    
-    
-    
+
 }
