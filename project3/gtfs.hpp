@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <sys/mman.h>
 #include <fstream>
+#include <dirent.h>
 #include <sstream>
 
 using namespace std;
@@ -51,7 +52,7 @@ typedef struct file {
 
 typedef struct gtfs gtfs_t;
 typedef struct write {
-    string filename;
+    string filename, dirname;
     int offset;
     int length;
     char *data;

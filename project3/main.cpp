@@ -9,6 +9,9 @@
 
 string directory ="./test";
 
+
+gtfs_t *root = nullptr;
+
 int verbose =0;
 
 #define VERBOSE_PRINT(verbose, str...) do { \
@@ -31,7 +34,7 @@ int check_file_exists( string file_name)
 
 gtfs_t* gtfs_init(string directory, int verbose_flag) {
     
-    gtfs_t *root = nullptr;
+    
    
     do_verbose = verbose_flag;
     VERBOSE_PRINT(do_verbose, "Initializing GTFileSystem inside directory " << directory << "\n");
@@ -42,7 +45,10 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
         
         
         root->dirname = directory;
+       
         struct stat sb;
+        
+        // check whether the directory exists or not
 
         if (stat(root->dirname.c_str(), &sb) == 0)
         {
@@ -56,12 +62,47 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
                     cout<<"Error in creating the directory"<<endl;
                 else
                     cout<<"Directory created"<<endl;
-                
             }
-                
         }
         else
-            cout<<"stat call failed"<<endl;
+        {
+            if( errno == EACCES)
+                cout<<"permission denied"<<endl;
+            else if( errno  == EBADF)
+                cout<<"  ";
+            else if( errno == EFAULT)
+                cout<<" ";
+            else if( errno == ELOOP)
+                cout<<" ";
+            else if (errno  ==ENAMETOOLONG)
+                cout<<"  ";
+            else if( errno  == ENOENT)
+                cout<<"  ";
+            else if( errno == ENOMEM)
+                cout<<" ";
+            else if( errno == ENOTDIR)
+                cout<<" ";
+            else if (errno  ==EOVERFLOW)
+                cout<<"  ";
+            else if( errno == EBADF)
+                cout<<" ";
+            else if( errno == EINVAL)
+                cout<<" ";
+            else if (errno  ==ENOTDIR)
+                cout<<"  ";
+            
+            
+        }
+            
+            
+            
+            
+            
+            
+            
+                
+            
+        
     }
     
     return root;
@@ -70,14 +111,40 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
 }
 
-void update_buffer( char *buffer, int file_length, string file_name)
+
+
+
+void update_buffer( char *buffer, int file_length, string dirname, string file_name)
 {
     // check whether the log file exist or not for that particular file and if it exists then update the buffer but first you have to mmap the file.
+    
+   
+    string log_dir = dirname +"_log";
+    
+    struct stat sb;
+    
+    // check whether the directory exists or not
+
+    if (stat(log_dir.c_str(), &sb) == 0)
+    {
+        if( S_ISDIR(sb.st_mode))
+        cout<<"Directory already exists"<<endl;
+        else
+        {
+            cout<<"Directory does not exist and creating the directory"<<endl;
+            
+            if( mkdir( log_dir.c_str(), 0777)  == -1)
+                cout<<"Error in creating the directory"<<endl;
+            else
+                cout<<"Directory created"<<endl;
+        }
+    }
+    
     
     size_t index = file_name.find('.', 1);
     
     
-    string log_file = file_name.substr(0, index)+"_log.txt";
+    string log_file = log_dir +"/" + file_name.substr(0,index)+"_log.txt";
     
     if( check_file_exists(log_file))
     {
@@ -85,34 +152,148 @@ void update_buffer( char *buffer, int file_length, string file_name)
         
         char c;
         read(fd, &c, 1);
+        
+        
         int offset, length;
         
-        string word;
-        while( c!= ' ')
+        while( c!= EOF)
         {
-            word.push_back(c);
+            string word;
+            while( c!= ' ')
+            {
+                word.push_back(c);
+                read(fd, &c, 1);
+                
+            }
+            offset = stoi(word);
+            word ="";
             read(fd, &c, 1);
+            while( c!= ' ')
+            {
+                word.push_back(c);
+                read( fd, &c, 1);
+            }
+            length = stoi( word);
+            read( fd, &c, 1);
+            for( int i = offset; i<offset+length; i++)
+            {
+                buffer[i] =c;
+                read( fd, &c, 1);
+            }
             
         }
-        offset = stoi(word);
-        word ="";
-        read(fd, &c, 1);
-        while( c!= ' ')
-        {
-            word.push_back(c);
-            read( fd, &c, 1);
-        }
-        length = stoi( word);
-        read( fd, &c, 1);
-        for( int i = offset; i<offset+length; i++)
-        {
-            buffer[i] =c;
-            read( fd, &c, 1);
-        }
+        
+        
         
     }
     
     
+    
+    
+    
+}
+
+int  update_file(string dirname, string file_name)
+{
+    string log_dir = dirname+ "_log";
+    
+    size_t index = file_name.find('.', 1);
+    
+    string original_file = dirname+"/" +file_name;
+    
+    
+    
+    
+    string log_file = log_dir +"/" + file_name.substr(0,index)+"_log.txt";
+    
+    if( check_file_exists(log_file))
+    {
+        int fd = open(log_file.c_str(), O_RDWR);
+        int fd1 = open(original_file.c_str(), O_RDWR);
+        
+        char c;
+        
+        int offset, length;
+        
+        while( read(fd, &c, 1) ==1)
+        {
+            string word;
+            while( c!= ' ')
+            {
+                word.push_back(c);
+                read(fd, &c, 1);
+                
+            }
+            offset = stoi(word);
+            off_t ret = lseek(fd1, off_t( offset), SEEK_SET);
+            if( ret == -1)
+            {
+                cout<<"Error in setting the file position"<<endl;
+                return -1;
+            }
+            
+            word ="";
+            read(fd, &c, 1);
+            while( c!= ' ')
+            {
+                word.push_back(c);
+                read( fd, &c, 1);
+            }
+            length = stoi( word);
+          
+            for( int i = 0; i<length; i++)
+            {
+                read( fd, &c, 1);
+                write(fd1, &c, 1);
+                
+            }
+            
+            
+        }
+        
+        if( ftruncate(fd, 0) == -1)
+        {
+            cout<<"Error in  truncating the log file"<<endl;
+            return -1;
+            
+        }
+        
+       
+        
+        
+        
+    }
+    
+    return 0;
+    
+    
+    
+}
+int gtfs_clean(gtfs_t* gtfs)
+{
+    // copy all the data from the logs and updates the files all at once.
+    
+    DIR *d;
+    
+    struct dirent *dir;
+    d =opendir(gtfs->dirname.c_str());
+    
+    if( d)
+    {
+        while( (dir = readdir(d)) != NULL)
+        {
+            //cout<<dir->d_name<<endl;
+            if( strcmp(dir->d_name, ".") == 0 ||  strcmp(dir->d_name,"..") == 0||  strcmp(dir->d_name, ".DS_Store") ==0)
+                continue;
+            else
+            {
+                update_file(gtfs->dirname, string(dir->d_name));
+            }
+            
+        }
+        closedir(d);
+    }
+    return 0;
     
     
     
@@ -154,7 +335,7 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         
         // update the file data structure
         
-        fl->filename = file_name;
+        fl->filename = filename;
         fl->fd =fd;
         fl->open =1;
         fl->file_length = file_length;
@@ -165,7 +346,7 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         // mmap the file into a buffer
                                                                                                                                                        
         fl->buffer = (char*)mmap(0, file_length, PROT_READ|PROT_WRITE, MAP_PRIVATE,fd, 0);
-        update_buffer(fl->buffer, file_length, file_name);
+        update_buffer(fl->buffer, file_length, gtf->dirname, filename);
     }
     else
     {
@@ -251,6 +432,7 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     w->offset = offset;
     w->length = length;
     w->filename = fl->filename;
+    w->dirname = gtfs->dirname;
     w->valid=1;
     w->id = global_id;
     w->fs = gtfs;
@@ -281,6 +463,8 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
     }
     return w;
 }
+
+
 
 void print_buffer( char *buffer, int length)
 {
@@ -317,7 +501,7 @@ int gtfs_sync_write_file(write_t* write_id)
     size_t index = write_id->filename.find('.', 1);
     
     
-    string log_file = write_id->filename.substr(0, index)+"_log.txt";
+    string log_file = write_id->dirname+ "_log"+ "/"+write_id->filename.substr(0, index)+"_log.txt";
     int fd;
     
     if( check_file_exists(log_file))
@@ -474,11 +658,23 @@ int main(int argc, const char * argv[]) {
     
     
     
+    
+    
+    
+    
+    
+    
     //string dir ="./test";
     
-    /*
+    
     
     gtfs_t *g  = gtfs_init(directory, 0);
+    
+    
+    //gtfs_clean(g);
+    
+    
+    
     
     
     file_t *x = gtfs_open_file( g, "test11.txt", 100 );
@@ -491,12 +687,32 @@ int main(int argc, const char * argv[]) {
     
     string name ="Dheera";
     
-    write_t *w = gtfs_write_file(g, x, 0, 6, name.c_str());
+    write_t *w1 = gtfs_write_file(g, x, 0, 6, name.c_str());
     
     buffer = gtfs_read_file(g, x, 0, 10);
     print_buffer(buffer, 10);
     
-    gtfs_sync_write_file(w);
+    gtfs_sync_write_file(w1);
+    
+    name="Naveen";
+    write_t *w2 = gtfs_write_file(g, x, 0, 6, name.c_str());
+    buffer = gtfs_read_file(g, x, 0, 10);
+    print_buffer(buffer, 10);
+    
+    gtfs_sync_write_file(w2);
+    
+    
+    
+    name=" Kumar";
+    write_t *w3 = gtfs_write_file(g, x, 6, 6, name.c_str());
+    
+    buffer = gtfs_read_file(g, x, 0, 12);
+    print_buffer(buffer, 12);
+    
+    
+    gtfs_clean(g);
+    
+    
     
     //gtfs_abort_write_file(w);
     
@@ -523,8 +739,6 @@ int main(int argc, const char * argv[]) {
     int check = gtfs_close_file(g, x);
     
     cout<<check<<endl;
-     
-     */
      
     
     
