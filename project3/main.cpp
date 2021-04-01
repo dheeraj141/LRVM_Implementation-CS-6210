@@ -538,7 +538,8 @@ int sync_write( write_t *write_id, int bytes)
     data += to_string( write_id->offset);
     data+=" ";
     
-    data+= to_string(write_id->length);
+    
+    data+= to_string(bytes);
     data+=" ";
     if( write_file(fd, data.c_str(), (int)data.length()) == -1)
     {
@@ -723,7 +724,7 @@ void test_clean_n_bytes( )
         
         string name ="Dheera";
         
-        write_t *w1 = gtfs_write_file(g, x, 0, 6, name.c_str());
+        write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
         gtfs_sync_write_file(w1);
         gtfs_clean_n_bytes(g, 5);
         gtfs_close_file(g, x);
@@ -734,9 +735,10 @@ void test_clean_n_bytes( )
     gtfs_t *g  = gtfs_init(directory, 0);
     
     file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    string name ="Dheer";
     
-    char *buffer = gtfs_read_file(g, x, 0, 5);
-    if( strcmp( buffer, "Dheer") == 0)
+    char *buffer = gtfs_read_file(g, x, 0, (int)name.length());
+    if( strcmp( buffer, name.c_str()) == 0)
         cout<<"PASS"<<endl;
     else
         cout<<"FAIL"<<endl;
@@ -758,7 +760,7 @@ void test_sync_write_n_bytes()
         file_t *x = gtfs_open_file( g, "test11.txt", 100 );
         string name ="Dheera";
         
-        write_t *w1 = gtfs_write_file(g, x, 0, 6, name.c_str());
+        write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
         gtfs_sync_write_file_n_bytes(w1, 5);
         exit(0);
     }
@@ -775,22 +777,82 @@ void test_sync_write_n_bytes()
     
     
 }
+
+void test_mutiple_writes()
+{
+    // this test checks multiple writes to the same location and multiple sync writes to the same location
+    
+    gtfs_t *g  = gtfs_init(directory, 0);
+    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    
+    string name ="Apple";
+    
+    char *buffer = gtfs_read_file(g, x, 0, (int)name.length());
+    
+    
+    
+    
+    
+    write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
+    name="Orang";
+    write_t *w2 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
+    buffer = gtfs_read_file(g, x, 0, (int)name.length());
+    
+    if( strcmp(buffer, name.c_str()) == 0)
+        cout<<"PASS"<<endl;
+    else
+        cout<<"FAIL"<<endl;
+    gtfs_sync_write_file(w2);
+    gtfs_sync_write_file(w1);
+    int pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        exit(-1);
+    }
+    if (pid == 0) {
+        gtfs_t *g  = gtfs_init(directory, 0);
+        file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+        string name ="Apple";
+        char *buffer = gtfs_read_file(g, x, 0, (int)name.length());
+        if( strcmp(buffer, name.c_str()) == 0)
+            cout<<"PASS"<<endl;
+        else
+            cout<<"FAIL"<<endl;
+        
+        exit(0);
+    }
+    
+    waitpid(pid, NULL, 0);
+ 
+}
  
 
  
+
 
 
 int main(int argc, const char * argv[]) {
     
+    cout << "================== Test 1 ==================\n";
+    cout << "Testing that clean n bytes function whether n bytes are written to the file or not .\n";
+    
     test_clean_n_bytes();
+    
+    cout << "================== Test 2 ==================\n";
+    cout << "Testing the sync n bytes function only n bytes of the data should be written and read afterwards.\n";
     
     test_sync_write_n_bytes();
     
-    cout << "================== Test 1 ==================\n";
+    cout << "================== Test 3 ==================\n";
+    cout << "Testing the  multiple , continuous writes and multiple sync writes.\n";
+    
+    test_mutiple_writes();
+    
+    cout << "================== Test 4 ==================\n";
     cout << "Testing that data written by one process is then successfully read by another process.\n";
     test_write_read();
 
-    cout << "================== Test 2 ==================\n";
+    cout << "================== Test 5 ==================\n";
     cout << "Testing that aborting a write returns the file to its original contents.\n";
     test_abort_write();
  
