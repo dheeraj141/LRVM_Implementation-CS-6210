@@ -42,8 +42,6 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
     if( root == nullptr)
     {
         root = new gtfs();
-        
-        
         root->dirname = directory;
        
         struct stat sb;
@@ -66,43 +64,9 @@ gtfs_t* gtfs_init(string directory, int verbose_flag) {
         }
         else
         {
-            if( errno == EACCES)
-                cout<<"permission denied"<<endl;
-            else if( errno  == EBADF)
-                cout<<"  ";
-            else if( errno == EFAULT)
-                cout<<" ";
-            else if( errno == ELOOP)
-                cout<<" ";
-            else if (errno  ==ENAMETOOLONG)
-                cout<<"  ";
-            else if( errno  == ENOENT)
-                cout<<"  ";
-            else if( errno == ENOMEM)
-                cout<<" ";
-            else if( errno == ENOTDIR)
-                cout<<" ";
-            else if (errno  ==EOVERFLOW)
-                cout<<"  ";
-            else if( errno == EBADF)
-                cout<<" ";
-            else if( errno == EINVAL)
-                cout<<" ";
-            else if (errno  ==ENOTDIR)
-                cout<<"  ";
-            
-            
+            cout<<"Error in stat system call"<<endl;
+            return nullptr;
         }
-            
-            
-            
-            
-            
-            
-            
-                
-            
-        
     }
     
     return root;
@@ -245,15 +209,40 @@ int  update_file(string dirname, string file_name, int bytes)
             
             if( bytes >0)
             {
-                for( int i = 0; i<length&& count<bytes; i++, ++count)
+                int i = 0;
+                for( i = 0; i<length&& count<bytes; i++, ++count)
                 {
                     read( fd, &c, 1);
                     write(fd1, &c, 1);
                     
                 }
-                
                 if(count == bytes)
+                {
+                    string temp;
+                    // means that current transaction has to be written in the file
+                    if( i <length)
+                    {
+                        temp+=to_string( offset+bytes);
+                        temp+=" ";
+                        temp+=to_string( length-bytes);
+                        temp+=" ";
+                       
+                    }
+                    while( read( fd, &c, 1) ==1)
+                        temp+=c;
+                    close( fd);
+                    fd = open(log_file.c_str(), O_RDWR);
+                    if( ftruncate(fd, (int)temp.length()) == -1)
+                    {
+                        cout<<"Issue in  truncating the file"<<endl;
+                        return -1;
+                    }
+                    for( auto &ch:temp)
+                        write(fd, &ch, 1);
+                    
                     return 0;
+                    
+                }
                 
             }
             else
@@ -282,13 +271,9 @@ int  update_file(string dirname, string file_name, int bytes)
             }
             
         }
-        
-        
-       
-        
-       
-        
-        
+        close(fd);
+        close(fd1);
+  
         
     }
     
@@ -825,6 +810,21 @@ void test_mutiple_writes()
     waitpid(pid, NULL, 0);
  
 }
+
+void test_clean_n_b()
+{
+    gtfs_t *g  = gtfs_init(directory, 0);
+    
+    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    
+    string name ="Dheeraj Kumar Ramchandani";
+    
+    write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
+    gtfs_sync_write_file(w1);
+    gtfs_clean_n_bytes(g, 5);
+    gtfs_close_file(g, x);
+    
+}
  
 
  
@@ -832,6 +832,9 @@ void test_mutiple_writes()
 
 
 int main(int argc, const char * argv[]) {
+    
+    
+    test_clean_n_b();
     
     cout << "================== Test 1 ==================\n";
     cout << "Testing that clean n bytes function whether n bytes are written to the file or not .\n";
