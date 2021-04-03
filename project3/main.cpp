@@ -32,6 +32,46 @@ int check_file_exists( string file_name)
     
 }
 
+int check_file_pointer( file_t  *fl)
+{
+    if( fl == nullptr)
+    {
+        cout<<"File pointer is null"<<endl;
+        return -1;
+    }
+    return 0;
+    
+}
+int check_dir_pointer( gtfs_t  *gtfs)
+{
+    if( gtfs == nullptr)
+    {
+        cout<<"GTFS instance is null pointer"<<endl;
+        return -1;
+    }
+    return 0;
+    
+}
+int get_file_size( string file_name)
+{
+    struct stat st;
+    stat(file_name.c_str(), &st);
+    int size = (int)st.st_size;
+    
+    return size;
+    
+}
+void print_buffer( char *buffer, int length)
+{
+    for( int i = 0; i<length; i++)
+    cout<<buffer[i]<<" ";
+    
+    cout<<endl;
+    
+}
+
+
+
 gtfs_t* gtfs_init(string directory, int verbose_flag) {
     
     
@@ -146,15 +186,9 @@ void update_buffer( char *buffer, int file_length, string dirname, string file_n
             }
             
         }
-        
-        
-        
+  
     }
-    
-    
-    
-    
-    
+ 
 }
 
 int  update_file(string dirname, string file_name, int bytes)
@@ -255,10 +289,7 @@ int  update_file(string dirname, string file_name, int bytes)
                 }
                 
             }
-          
-            
-            
-            
+ 
         }
         
         if( bytes  == -1)
@@ -286,6 +317,10 @@ int  update_file(string dirname, string file_name, int bytes)
 int clean_log( gtfs_t *gtfs, int bytes)
 {
     // copy all the data from the logs and updates the files all at once.
+    
+    int y = check_dir_pointer(gtfs);
+    if( y == -1)
+        return -1;
     
     DIR *d;
     
@@ -317,37 +352,40 @@ int gtfs_clean(gtfs_t* gtfs)
 }
 
 
-
 file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
     
-    file_t *fl = new file_t();
+    
+    //check dir pointer is valid or not
+    int y = check_dir_pointer(gtf);
+    if( y==-1)
+        return nullptr;
+    
+    
+    
     
     string file_name = gtf->dirname+ "/" + filename;
     
-    if(  gtf->mmap_buffer.count(file_name) == 0 )
+    // check if file pointer exists or not using the unordered map
+    
+    if(  gtf->file_map.find(file_name) == gtf->file_map.end() )
     {
-        cout<<"file is not opened or created "<<endl;
+        file_t *fl = new file_t();
+        //cout<<"file is not opened or created "<<endl;
         // open a file
         int fd = open(file_name.c_str(), O_RDWR| O_CREAT, S_IRWXU| S_IRWXG);
-        
-        
-        
-                                                                                                                                                     
+                               
         if( fd == -1)
         {
             cout<<"Error in opening the file"<<endl;
         }
-        else
-            cout<<"file opened"<<endl;
         
-        struct stat st;
-        stat(file_name.c_str(), &st);
-        int size = (int)st.st_size;
-        
+        // get the file size
+        int size = get_file_size(file_name);
         if( size < file_length)
         {
             if( ftruncate(fd, file_length) == -1)
                 cout<<"Error in increasing the file size"<<endl;
+            
         }
         
         // update the file data structure
@@ -355,23 +393,55 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
         fl->filename = filename;
         fl->fd =fd;
         fl->open =1;
-        fl->file_length = file_length;
-        
-        
-        // make a new buffer
-        
-        // mmap the file into a buffer
-                                                                                                                                                       
-        fl->buffer = (char*)mmap(0, file_length, PROT_READ|PROT_WRITE, MAP_PRIVATE,fd, 0);
-        update_buffer(fl->buffer, file_length, gtf->dirname, filename);
+        fl->file_length  = max( size, file_length);
+        fl->buffer = (char*)mmap(0, fl->file_length, PROT_READ|PROT_WRITE, MAP_PRIVATE,fd, 0);
+        update_buffer(fl->buffer, fl->file_length, gtf->dirname, fl->filename);
+        gtf->file_map.insert({ file_name, fl});
+        return fl;
     }
     else
     {
-        cout<<"file is already opened"<<endl;
-        
+        file_t *fl;
+       
         fl = gtf->file_map.at(file_name);
-        
+        if( fl->open ==1)
+        {
+            cout<<"File is being used by another process"<<endl;
+            return nullptr;
+            
+        }
+        else
+        {
+            int fd = open(file_name.c_str(), O_RDWR| O_CREAT, S_IRWXU| S_IRWXG);
+            // get the file size
+            int size = get_file_size(file_name);
+            if( size < file_length)
+            {
+                if( ftruncate(fd, file_length) == -1)
+                    cout<<"Error in increasing the file size"<<endl;
+                
+                char *copy_buffer = new char[size];
+                for( int i = 0; i<size; i++)
+                copy_buffer[i] = fl->buffer[i];
+                
+                munmap(fl->buffer, size);
+                fl->buffer = (char*)mmap(0, file_length, PROT_READ|PROT_WRITE, MAP_PRIVATE,fd, 0);
+                for( int i =0;i<size; i++)
+                fl->buffer[i] = copy_buffer[i];
+                
+                delete []copy_buffer;
+                
+            }
+            fl->fd = fd;
+            fl->open=1;
+            fl->file_length  = max( size, file_length);
+            update_buffer(fl->buffer, fl->file_length, gtf->dirname, fl->filename);
+            
+            return fl;
+        }
     }
+    
+    /*
   
     if (gtf != nullptr) {
         VERBOSE_PRINT(do_verbose, "Opening file " << filename << " inside directory " << gtf->dirname << "\n");
@@ -383,7 +453,55 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
     
 
     VERBOSE_PRINT(do_verbose, "Success\n"); //On success returns non NULL.
-    return fl;
+     */
+}
+
+
+int gtfs_remove_file(gtfs_t* gtfs, file_t* fl)
+{
+    // remove the file and also update any metadata associated with it
+    int x = check_file_pointer(fl);
+    int y = check_dir_pointer(gtfs);
+    if( x ==-1 || y==-1)
+        return -1;
+  
+    if(  fl->open ==1)
+    {
+        cout<<"cannot remove an open file"<<endl;
+        return -1;
+    }
+    else
+    {
+        //unmap the buffer, remove the file pointer from the unordered map and delete both the file and  log file.
+        
+        munmap(fl->buffer, fl->file_length);
+        string log_dir = gtfs->dirname+"_log";
+        size_t index = fl->filename.find('.', 1);
+        string log_file = log_dir +"/" + fl->filename.substr(0,index)+"_log.txt";
+        string file_name = gtfs->dirname+"/" + fl->filename;
+        gtfs->file_map.erase(file_name);
+        
+        // remove the file
+        if( remove(file_name.c_str()) == -1)
+        {
+            cout<<"Error in removing the file"<<endl;
+            return -1;
+        }
+        
+        // remove the log file
+        
+        if( remove( log_file.c_str()) == -1)
+        {
+            cout<<"Error in removing the log file"<<endl;
+            return -1;
+        }
+        return 0;
+      
+        
+        
+    }
+    
+    
 }
 
 
@@ -392,11 +510,15 @@ file_t* gtfs_open_file(gtfs_t* gtf, string filename, int file_length) {
 
 int gtfs_close_file(gtfs_t* gtfs, file_t* fl)
 {
+    int x = check_file_pointer(fl);
+    if( x ==-1 )
+        return -1;
     if( fl->open  == 0)
     {
         cout<<"File is not opened"<<endl;
         return -1;
     }
+  
     if( close( fl->fd) == -1)
     {
         cout<<"Error in closing the file"<<endl;
@@ -417,6 +539,19 @@ int gtfs_close_file(gtfs_t* gtfs, file_t* fl)
 }
 char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
 {
+    
+    // check pointer is valid and file is opened or not
+    int x = check_file_pointer(fl);
+    if( x ==-1)
+        return nullptr;
+    
+    if( fl->open == 0)
+    {
+        cout<<"File is not opened"<<endl;
+        return nullptr;
+    }
+    
+    
     char *buf;
     buf = new char[ length+1];
     
@@ -431,6 +566,19 @@ char* gtfs_read_file(gtfs_t* gtfs, file_t* fl, int offset, int length)
 }
 write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const char* data)
 {
+    
+    int x = check_file_pointer(fl);
+    int y = check_dir_pointer(gtfs);
+    if( x ==-1 || y==-1)
+        return nullptr;
+    
+    if( fl->open == 0)
+    {
+        cout<<"File is not opened"<<endl;
+        return nullptr;
+    }
+    
+    
     write_t *w = new write_t();
     
     w->data = new char[length];
@@ -469,14 +617,7 @@ write_t* gtfs_write_file(gtfs_t* gtfs, file_t* fl, int offset, int length, const
 
 
 
-void print_buffer( char *buffer, int length)
-{
-    for( int i = 0; i<length; i++)
-    cout<<buffer[i]<<" ";
-    
-    cout<<endl;
-    
-}
+
 int write_file( int fd, const char *data,int length)
 {
     ssize_t ret;
@@ -501,6 +642,11 @@ int sync_write( write_t *write_id, int bytes)
 {
     // sync write will check for the log file whether if exists or not if exists open the log file and write the transactions and otherwise create the log file and then do the same
     
+    if( write_id == nullptr)
+    {
+        cout<<"Invalid write transaction"<<endl;
+        return -1;
+    }
     
     size_t index = write_id->filename.find('.', 1);
     
@@ -528,6 +674,7 @@ int sync_write( write_t *write_id, int bytes)
     data+=" ";
     if( write_file(fd, data.c_str(), (int)data.length()) == -1)
     {
+        cout<<" Write to the log file failed"<<endl;
         return -1;
     }
     
@@ -538,15 +685,11 @@ int sync_write( write_t *write_id, int bytes)
     if( fsync(fd) == -1)
     {
         
-        cout<<"issue is writing to disk"<<endl;
+        cout<<"issue in writing to disk"<<endl;
         return -1;
     }
-    else
-        cout<<"Written to disk"<<endl;
-    
     
     int bytes_written = (int)data.length() +bytes;
-    
     
     if(bytes == write_id->length)
     {
@@ -603,12 +746,20 @@ int gtfs_clean_n_bytes(gtfs_t *gtfs, int bytes)
 int gtfs_abort_write_file(write_t* write_id)
 {
     
-    // abort means you copy the same data back to the mmap buffer for that you should have access to the mmap buffer but that bufffer lies in the gtfs instance and we are not passing the gtfs instance here
+    if( write_id == nullptr)
+    {
+        cout<<"Invalid write transaction"<<endl;
+        return -1;
+    }
     
     for( int i = write_id->offset; i<write_id->offset+write_id->length; i++)
     {
+        // undo the write to the mapped  buffer
+        
         write_id->file_buffer->buffer[i] = write_id->data[i-write_id->offset];
     }
+    
+    // delete the write transaction
     delete [] write_id->data;
     delete [] write_id->new_data;
     delete write_id;
@@ -728,6 +879,8 @@ void test_clean_n_bytes( )
     else
         cout<<"FAIL"<<endl;
     
+    gtfs_close_file(g, x);
+    
  
 }
 
@@ -747,6 +900,7 @@ void test_sync_write_n_bytes()
         
         write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
         gtfs_sync_write_file_n_bytes(w1, 5);
+        gtfs_close_file(g, x);
         exit(0);
     }
     waitpid(pid, NULL, 0);
@@ -759,6 +913,8 @@ void test_sync_write_n_bytes()
         cout<<"PASS"<<endl;
     else
         cout<<"FAIL"<<endl;
+    
+    gtfs_close_file(g, x);
     
     
 }
@@ -789,6 +945,8 @@ void test_mutiple_writes()
         cout<<"FAIL"<<endl;
     gtfs_sync_write_file(w2);
     gtfs_sync_write_file(w1);
+    gtfs_close_file(g, x);
+    
     int pid = fork();
     if (pid < 0) {
         perror("fork");
@@ -803,6 +961,8 @@ void test_mutiple_writes()
             cout<<"PASS"<<endl;
         else
             cout<<"FAIL"<<endl;
+        
+        gtfs_close_file(g, x);
         
         exit(0);
     }
@@ -825,6 +985,45 @@ void test_clean_n_b()
     gtfs_close_file(g, x);
     
 }
+
+void test_remove_file()
+{
+    gtfs_t *g  = gtfs_init(directory, 0);
+    
+    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    
+    string name ="Dheeraj Kumar Ramchandani";
+    
+    write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
+    gtfs_sync_write_file(w1);
+    gtfs_close_file(g, x);
+    gtfs_remove_file(g, x);
+    
+}
+void check_multiple_open_close()
+{
+    gtfs_t *g  = gtfs_init(directory, 0);
+    
+    file_t *x = gtfs_open_file( g, "test11.txt", 100 );
+    
+    string name ="Dheeraj Kumar Ramchandani";
+    
+    write_t *w1 = gtfs_write_file(g, x, 0, (int)name.length(), name.c_str());
+    gtfs_sync_write_file(w1);
+    gtfs_close_file(g, x);
+    
+    gtfs_close_file(g, x);
+    
+    x = gtfs_open_file( g, "test11.txt", 100 );
+    char *buffer = gtfs_read_file(g, x, 0, (int)name.length());
+    if( strcmp(buffer, name.c_str()) ==  0)
+        cout<<"PASS"<<endl;
+    else
+        cout<<"FAIL"<<endl;
+    gtfs_close_file(g, x);
+    
+    
+}
  
 
  
@@ -834,28 +1033,36 @@ void test_clean_n_b()
 int main(int argc, const char * argv[]) {
     
     
-    test_clean_n_b();
-    
     cout << "================== Test 1 ==================\n";
+    cout << "Testing that clean n bytes function whether n bytes are written to the file or not .\n";
+    
+    check_multiple_open_close();
+    
+    
+    cout << "================== Test 2 ==================\n";
+    cout << "Testing that clean n bytes function whether n bytes are written to the file or not .\n";
+    test_remove_file();
+    
+    cout << "================== Test 3 ==================\n";
     cout << "Testing that clean n bytes function whether n bytes are written to the file or not .\n";
     
     test_clean_n_bytes();
     
-    cout << "================== Test 2 ==================\n";
+    cout << "================== Test 4 ==================\n";
     cout << "Testing the sync n bytes function only n bytes of the data should be written and read afterwards.\n";
     
     test_sync_write_n_bytes();
     
-    cout << "================== Test 3 ==================\n";
+    cout << "================== Test 5 ==================\n";
     cout << "Testing the  multiple , continuous writes and multiple sync writes.\n";
     
-    test_mutiple_writes();
+   test_mutiple_writes();
     
-    cout << "================== Test 4 ==================\n";
+    cout << "================== Test 6 ==================\n";
     cout << "Testing that data written by one process is then successfully read by another process.\n";
     test_write_read();
 
-    cout << "================== Test 5 ==================\n";
+    cout << "================== Test 7 ==================\n";
     cout << "Testing that aborting a write returns the file to its original contents.\n";
     test_abort_write();
  

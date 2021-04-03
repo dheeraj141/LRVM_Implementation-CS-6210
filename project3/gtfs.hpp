@@ -47,6 +47,7 @@ typedef struct file {
         filename="";
         file_length =0;
         open =0; fd =-1;
+        buffer  = nullptr;
     }
 } file_t;
 
@@ -61,6 +62,16 @@ typedef struct write {
     file_t *file_buffer;
     int valid;
     int id;
+    write()
+    {
+        filename="";
+        dirname="";
+        offset =length = 0;
+        data =nullptr;
+        new_data = nullptr;
+        fs = nullptr; file_buffer=nullptr;
+        valid =-1; id  =-1;
+    }
     // TODO: Add any additional fields if necessary
 } write_t;
 
@@ -70,11 +81,11 @@ typedef struct gtfs {
     
     unordered_map<string, file_t*> file_map;
     
-    unordered_map<string, pair<char*, int>> mmap_buffer;
-    
     unordered_map<int, write_t*> transactions;
-    unordered_map<write_t*, int> transaction_id;
-    
+    gtfs()
+    {
+        dirname="";
+    }
     
     
     // TODO: Add any additional fields if necessary
